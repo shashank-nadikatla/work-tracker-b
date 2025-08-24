@@ -6,8 +6,8 @@ dist/
 lib/
 
 # --- Secrets & environment config ------------------------------------------
-.env            # generic dotenv file
-.env.*          # any variant like .env.local, .env.prod
+.env
+.env.* // any variant like .env.local, .env.prod
 .runtimeconfig.json
 serviceAccountKey.json
 
