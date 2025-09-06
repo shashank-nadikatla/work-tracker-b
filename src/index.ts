@@ -40,12 +40,15 @@ app.use(cors());
 app.use(express.json());
 
 let entriesCol: any;
+let skipsCol: any;
 
 async function connectDb() {
   await client.connect();
   const db = client.db();
   entriesCol = db.collection("entries");
+  skipsCol = db.collection("skips");
   await entriesCol.createIndex({ uid: 1, timestamp: -1 });
+  await skipsCol.createIndex({ uid: 1, date: 1 }, { unique: true });
   console.log("MongoDB connected and index ensured");
 }
 connectDb();
@@ -94,13 +97,47 @@ app.post("/entries", async (req, res) => {
     { $set: entry },
     { upsert: true }
   );
-  res.json({ success: true });
+  // If there's a skip record for this entry date, remove it (auto-unprotect)
+  let removedSkip = false;
+  if (entry.date) {
+    const delRes = await skipsCol.deleteOne({ uid, date: entry.date });
+    removedSkip = Boolean(delRes.deletedCount);
+  }
+  res.json({ success: true, removedSkip });
 });
 
 app.delete("/entries/:id", async (req, res) => {
   const uid = (req as any).uid;
   const { id } = req.params;
   await entriesCol.deleteOne({ uid, id });
+  res.json({ success: true });
+});
+
+// ----- Skip days (streak prevention) -----
+app.get("/skips", async (req, res) => {
+  const uid = (req as any).uid;
+  const skips = await skipsCol.find({ uid }).sort({ date: 1 }).toArray();
+  res.json(skips);
+});
+
+app.post("/skips", async (req, res) => {
+  const uid = (req as any).uid;
+  const { date, reason } = req.body as { date?: string; reason?: string };
+  if (!date || !reason) {
+    return res.status(400).json({ error: "date and reason required" });
+  }
+  await skipsCol.updateOne(
+    { uid, date },
+    { $set: { uid, date, reason, createdAt: Date.now() } },
+    { upsert: true }
+  );
+  res.json({ success: true });
+});
+
+app.delete("/skips/:date", async (req, res) => {
+  const uid = (req as any).uid;
+  const { date } = req.params;
+  await skipsCol.deleteOne({ uid, date });
   res.json({ success: true });
 });
 
@@ -113,3 +150,4 @@ if (require.main === module) {
     console.log(`API server running locally on port ${port}`);
   });
 }
+
